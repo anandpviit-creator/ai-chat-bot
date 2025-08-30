@@ -21,8 +21,10 @@ async def chat_endpoint(request: ChatRequest):
     session_id = request.session_id or str(uuid.uuid4())
 
     # The input to the graph must match the GraphState structure
+    from .config import settings
     graph_input = {
         "query": request.query,
+        "available_spaces": settings.CONFLUENCE_SPACE_KEYS,
         "keyword_results": [],
         "vector_results": [],
         "documents": []

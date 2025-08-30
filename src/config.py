@@ -9,7 +9,7 @@ class Settings:
     CONFLUENCE_URL = os.getenv("CONFLUENCE_URL")
     CONFLUENCE_USERNAME = os.getenv("CONFLUENCE_USERNAME")
     CONFLUENCE_API_TOKEN = os.getenv("CONFLUENCE_API_TOKEN")
-    CONFLUENCE_SPACE_KEY = os.getenv("CONFLUENCE_SPACE_KEY")
+    CONFLUENCE_SPACE_KEYS = [key.strip() for key in os.getenv("CONFLUENCE_SPACE_KEYS", "").split(',')]
 
     # PostgreSQL
     POSTGRES_DB = os.getenv("POSTGRES_DB")

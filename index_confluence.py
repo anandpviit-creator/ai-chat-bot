@@ -45,14 +45,26 @@ def index_data():
     # 2. Ensure OpenSearch index exists
     create_opensearch_index()
 
-    # 3. Fetch pages from Confluence
-    print(f"Fetching all pages from space: {settings.CONFLUENCE_SPACE_KEY}...")
-    pages = get_all_pages_from_space(confluence_client, settings.CONFLUENCE_SPACE_KEY)
-    if not pages:
-        print("No pages found in the specified Confluence space.")
+    # 3. Fetch pages from all configured Confluence spaces
+    all_pages = []
+    if not settings.CONFLUENCE_SPACE_KEYS or settings.CONFLUENCE_SPACE_KEYS == ['']:
+        print("No Confluence space keys configured. Please set CONFLUENCE_SPACE_KEYS in your .env file.")
         return
 
-    print(f"Found {len(pages)} pages to index.")
+    for space_key in settings.CONFLUENCE_SPACE_KEYS:
+        print(f"Fetching all pages from space: {space_key}...")
+        pages_in_space = get_all_pages_from_space(confluence_client, space_key)
+        if not pages_in_space:
+            print(f"No pages found in space: {space_key}")
+            continue
+        all_pages.extend(pages_in_space)
+        print(f"Found {len(pages_in_space)} pages in space {space_key}.")
+
+    if not all_pages:
+        print("No pages found across any of the specified Confluence spaces.")
+        return
+
+    print(f"Found a total of {len(all_pages)} pages to index.")
 
     # 4. Process and split documents
     text_splitter = RecursiveCharacterTextSplitter(
@@ -64,7 +76,7 @@ def index_data():
     all_chunks = []
     all_metadata = []
 
-    for page in pages:
+    for page in all_pages:
         page_id = page['id']
         title = page['title']
         url = settings.CONFLUENCE_URL + page['_links']['webui']

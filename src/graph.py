@@ -10,6 +10,8 @@ from .schemas import SearchResult
 # Define the state for our graph
 class GraphState(TypedDict):
     query: str
+    available_spaces: List[str]
+    classified_space_key: str
     keyword_results: List[Dict]
     vector_results: List[Dict]
     documents: List[Dict]
@@ -17,14 +19,70 @@ class GraphState(TypedDict):
 
 # --- Nodes ---
 
-def keyword_search_node(state: GraphState) -> dict:
-    """Performs keyword search using OpenSearch."""
+def classify_query_node(state: GraphState) -> dict:
+    """
+    Uses the LLM to classify the user's query and determine the most relevant Confluence space.
+    """
     query = state["query"]
+    available_spaces = state["available_spaces"]
+
+    prompt_template = """
+    You are an expert at routing user questions to the correct Confluence knowledge base space.
+    Based on the user's query, select the single most relevant space from the following list.
+    Return ONLY the key of the selected space, and nothing else.
+
+    Available Spaces:
+    {spaces}
+
+    User Query:
+    "{query}"
+
+    Selected Space Key:
+    """
+
+    prompt = PromptTemplate(
+        template=prompt_template,
+        input_variables=["spaces", "query"]
+    )
+
+    llm = get_llm()
+    chain = prompt | llm
+
+    # Format the spaces for the prompt
+    spaces_str = "\n".join([f"- {s}" for s in available_spaces])
+
+    # Invoke the chain and clean up the response
+    classified_space = chain.invoke({"spaces": spaces_str, "query": query}).strip()
+
+    # Basic validation to ensure the LLM returned a valid space
+    if classified_space not in available_spaces:
+        # Fallback to the first available space if classification fails
+        print(f"Warning: Classified space '{classified_space}' is not in the available list. Falling back.")
+        classified_space = available_spaces[0] if available_spaces else ""
+
+    print(f"Query classified to space: {classified_space}")
+    return {"classified_space_key": classified_space}
+
+
+def keyword_search_node(state: GraphState) -> dict:
+    """Performs keyword search using OpenSearch, filtered by the classified space key."""
+    query = state["query"]
+    space_key = state["classified_space_key"]
+
     search_query = {
         "query": {
-            "multi_match": {
-                "query": query,
-                "fields": ["title^2", "content"]
+            "bool": {
+                "must": {
+                    "multi_match": {
+                        "query": query,
+                        "fields": ["title^2", "content"]
+                    }
+                },
+                "filter": {
+                    "term": {
+                        "space_key": space_key
+                    }
+                }
             }
         }
     }
@@ -45,9 +103,18 @@ def keyword_search_node(state: GraphState) -> dict:
     return {"keyword_results": documents}
 
 def vector_search_node(state: GraphState) -> dict:
-    """Performs semantic search using PGVector."""
+    """Performs semantic search using PGVector, filtered by the classified space key."""
     query = state["query"]
-    results = vector_store.similarity_search_with_score(query, k=settings.TOP_K)
+    space_key = state["classified_space_key"]
+
+    # The filter for PGVector is a dictionary targeting the metadata
+    search_filter = {"space_key": space_key}
+
+    results = vector_store.similarity_search_with_score(
+        query,
+        k=settings.TOP_K,
+        filter=search_filter
+    )
 
     documents = [
         {
@@ -136,19 +203,25 @@ def create_graph():
     workflow = StateGraph(GraphState)
 
     # Add nodes
+    workflow.add_node("classify_query", classify_query_node)
     workflow.add_node("keyword_search", keyword_search_node)
     workflow.add_node("vector_search", vector_search_node)
     workflow.add_node("fuse_results", fusion_node)
     workflow.add_node("generate", generate_node)
 
-    # Build the graph for parallel execution
-    workflow.add_edge(START, "keyword_search")
-    workflow.add_edge(START, "vector_search")
+    # Build the graph workflow
+    workflow.set_entry_point("classify_query")
 
-    # Both search nodes will update the state, then we fuse the results
-    workflow.add_edge("keyword_search", "fuse_results")
-    workflow.add_edge("vector_search", "fuse_results")
+    # After classification, run searches in parallel
+    workflow.add_edge("classify_query", "keyword_search")
+    workflow.add_edge("classify_query", "vector_search")
 
+    # After parallel searches, fuse the results.
+    # This syntax ensures that the 'fuse_results' node is only called after
+    # BOTH 'keyword_search' and 'vector_search' have completed.
+    workflow.add_edge(["keyword_search", "vector_search"], "fuse_results")
+
+    # After fusing, generate the final response
     workflow.add_edge("fuse_results", "generate")
     workflow.add_edge("generate", END)
 
