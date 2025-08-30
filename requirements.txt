@@ -1,0 +1,30 @@
+# Core Framework
+fastapi
+uvicorn[standard]
+python-dotenv
+
+# Confluence API
+atlassian-python-api
+
+# Language Model & Vector Embeddings
+langchain
+langchain-community
+langchain-core
+langgraph
+langchain-mistralai
+ollama
+
+# Vector Store
+psycopg2-binary
+pgvector
+
+# Search
+opensearch-py
+
+# Document Processing
+unstructured
+beautifulsoup4
+html2text
+
+# For embedding model
+sentence-transformers

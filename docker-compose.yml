@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: confluence_app
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres
+      - opensearch
+    # This allows the container to connect to services running on the host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: confluence_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  opensearch:
+    image: opensearchproject/opensearch:2
+    container_name: confluence_opensearch
+    environment:
+      - discovery.type=single-node
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m" # Disable security for local dev
+      - "plugins.security.disabled=true"
+    ports:
+      - "9200:9200"
+      - "9600:9600" # for performance analyzer
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+
+volumes:
+  postgres_data:
+  opensearch_data:
