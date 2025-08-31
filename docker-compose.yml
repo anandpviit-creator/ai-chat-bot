@@ -42,6 +42,18 @@ services:
     volumes:
       - opensearch_data:/usr/share/opensearch/data
 
+  neo4j:
+    image: neo4j:5
+    container_name: confluence_neo4j
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
+    ports:
+      - "7474:7474" # HTTP
+      - "7687:7687" # Bolt
+    volumes:
+      - neo4j_data:/data
+
 volumes:
   postgres_data:
   opensearch_data:
+  neo4j_data:

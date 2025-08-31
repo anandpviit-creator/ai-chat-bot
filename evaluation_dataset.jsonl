@@ -1,0 +1,5 @@
+{"question": "What is the process for setting up a new project?", "ground_truth": "The process for setting up a new project involves creating a new repository from the template, configuring the CI/CD pipeline, and deploying to the staging environment."}
+{"question": "Explain the hybrid search architecture.", "ground_truth": "The hybrid search architecture combines keyword search from OpenSearch and semantic search from PGVector. The results are fused using a weighted score to provide more relevant results than either method alone."}
+{"question": "Which pages are linked to the 'API-docs' page?", "ground_truth": "The pages linked to the 'API-docs' page are 'Authentication Guide' and 'Rate Limiting Policy'."}
+{"question": "Who works on Project Phoenix?", "ground_truth": "Jules the Engineer and the QA team are listed as working on Project Phoenix."}
+{"question": "What is the purpose of the daily stand-up?", "ground_truth": "The purpose of the daily stand-up is to align the team on progress, identify blockers, and plan the day's work."}

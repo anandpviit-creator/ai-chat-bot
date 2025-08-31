@@ -3,6 +3,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from .config import settings
 from .confluence_utils import get_confluence_client, get_all_pages_from_space, get_page_descendants, clean_html_content
 from .search_clients import opensearch_client, vector_store
+from .graph_extraction import extract_graph_from_text
+from .neo4j_client import neo4j_client
 
 class ConfluenceIndexer:
     """
@@ -130,6 +132,17 @@ class ConfluenceIndexer:
                 clean_content = clean_html_content(html_content)
             except KeyError:
                 clean_content = "No content found."
+
+            # --- New Graph Extraction Step ---
+            if clean_content:
+                print(f"Extracting graph from: {title} ({page_id})")
+                extracted_graph = extract_graph_from_text(clean_content)
+                if extracted_graph:
+                    print(f"  > Extracted {len(extracted_graph.nodes)} nodes and {len(extracted_graph.relationships)} relationships. Populating graph...")
+                    neo4j_client.add_graph_data(extracted_graph)
+                else:
+                    print("  > No graph data extracted.")
+            # ---------------------------------
 
             chunks = text_splitter.split_text(clean_content)
 

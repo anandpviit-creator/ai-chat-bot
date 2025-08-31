@@ -6,6 +6,7 @@ from .config import settings
 from .llm_client import get_llm
 from .search_clients import opensearch_client, vector_store
 from .schemas import SearchResult
+from .neo4j_tool import query_knowledge_graph
 
 # Define the state for our graph
 from langchain_core.messages import BaseMessage
@@ -14,13 +15,56 @@ class GraphState(TypedDict):
     query: str
     available_spaces: List[str]
     classified_space_key: str
+    routing_decision: str
     keyword_results: List[Dict]
     vector_results: List[Dict]
     documents: List[Dict]
+    graph_result: dict # To hold the result from the knowledge graph
     generation: str
     chat_history: List[BaseMessage]
 
 # --- Nodes ---
+
+def query_router_node(state: GraphState) -> dict:
+    """
+    Uses the LLM to decide whether to query the knowledge graph or perform a document search.
+    Saves the decision to the state.
+    """
+    query = state["query"]
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                """
+You are an expert at routing a user's question to the correct information source.
+Based on the question, decide whether it is better to answer it by searching a knowledge graph or by searching through unstructured documents.
+
+If the question is about relationships, connections, or asks for a specific list of items (e.g., "Who works on Project X?", "Which pages link to 'API-docs'?"), choose 'graph'.
+If the question is more general, asks for an explanation, or is about the content of a specific document, choose 'document'.
+
+Return ONLY the word 'graph' or 'document'.
+""",
+            ),
+            ("human", "Question: {question}"),
+        ]
+    )
+    llm = get_llm()
+    chain = prompt | llm
+    result = chain.invoke({"question": query}).strip().lower()
+
+    print(f"Routing query to: '{result}'")
+    if "graph" in result:
+        return {"routing_decision": "graph"}
+    return {"routing_decision": "document"}
+
+def graph_query_node(state: GraphState) -> dict:
+    """
+    Queries the knowledge graph using the dedicated tool.
+    """
+    query = state["query"]
+    result = query_knowledge_graph(query)
+    return {"graph_result": result}
+
 
 def classify_query_node(state: GraphState) -> dict:
     """
@@ -169,21 +213,32 @@ def fusion_node(state: GraphState) -> dict:
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 
+import json
+
 def generate_node(state: GraphState) -> dict:
     """
-    Generates an answer using the LLM, taking into account the retrieved documents and chat history.
-    Also updates the chat history with the latest turn.
+    Generates an answer using the LLM. It can use either retrieved documents
+    or the result of a knowledge graph query as context.
     """
     query = state["query"]
-    documents = state["documents"]
+    documents = state.get("documents", [])
+    graph_result = state.get("graph_result")
     chat_history = state["chat_history"]
 
-    context = "\n\n".join([doc["content"] for doc in documents])
+    context = ""
+    if documents:
+        context = "\n\n".join([doc["content"] for doc in documents])
+    elif graph_result and graph_result.get("result"):
+        # If we have a graph result, format it as a string for the context
+        context = f"The knowledge graph returned the following data:\n{json.dumps(graph_result['result'], indent=2)}"
+    elif graph_result and graph_result.get("error"):
+        context = f"There was an error querying the knowledge graph: {graph_result['error']}"
 
     # The system prompt provides instructions
     system_prompt = """
     You are a helpful assistant for a Confluence knowledge base.
     Answer the user's question based on the following context and the conversation history.
+    The context may be a set of documents or data from a knowledge graph.
     If the context does not contain the answer, state that you don't have enough information.
     Do not make up answers.
 
@@ -225,25 +280,39 @@ def create_graph():
 
     # Add nodes
     workflow.add_node("classify_query", classify_query_node)
+    workflow.add_node("query_router", query_router_node)
     workflow.add_node("keyword_search", keyword_search_node)
     workflow.add_node("vector_search", vector_search_node)
     workflow.add_node("fuse_results", fusion_node)
+    workflow.add_node("graph_query", graph_query_node)
     workflow.add_node("generate", generate_node)
 
     # Build the graph workflow
     workflow.set_entry_point("classify_query")
 
-    # After classification, run searches in parallel
-    workflow.add_edge("classify_query", "keyword_search")
-    workflow.add_edge("classify_query", "vector_search")
+    # After classifying the space, route the query
+    workflow.add_edge("classify_query", "query_router")
 
-    # After parallel searches, fuse the results.
-    # This syntax ensures that the 'fuse_results' node is only called after
-    # BOTH 'keyword_search' and 'vector_search' have completed.
-    workflow.add_edge(["keyword_search", "vector_search"], "fuse_results")
+    # Conditional routing based on the query type
+    workflow.add_conditional_edges(
+        "query_router",
+        # Read the routing decision from the state to decide the next step
+        lambda state: state["routing_decision"],
+        {
+            "document": "keyword_search", # Start of the document search branch
+            "graph": "graph_query",      # The graph search branch
+        },
+    )
 
-    # After fusing, generate the final response
-    workflow.add_edge("fuse_results", "generate")
+    # Document Search Branch (sequential for robustness)
+    workflow.add_edge("keyword_search", "vector_search")
+    workflow.add_edge("vector_search", "fuse_results")
+
+    # Define paths to the generation node
+    workflow.add_edge("fuse_results", "generate") # From document search
+    workflow.add_edge("graph_query", "generate")  # From graph search
+
+    # End after generation
     workflow.add_edge("generate", END)
 
     return workflow.compile()

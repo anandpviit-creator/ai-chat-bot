@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from .schemas import ChatRequest, ChatResponse, Document
 from .graph import app_graph
+from .neo4j_client import neo4j_client
 import uuid
 
 app = FastAPI(
@@ -8,6 +9,11 @@ app = FastAPI(
     description="A chatbot that answers questions based on Confluence documents using hybrid search.",
     version="1.0.0"
 )
+
+@app.on_event("shutdown")
+def shutdown_event():
+    print("Closing Neo4j connection...")
+    neo4j_client.close()
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):

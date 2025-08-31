@@ -28,3 +28,12 @@ html2text
 
 # For embedding model
 sentence-transformers
+
+# Neo4j Driver
+neo4j
+
+# Ragas Evaluation
+ragas
+pandas
+ipywidgets
+# Note: Ragas also relies on many of the langchain, etc. libraries already listed above.
