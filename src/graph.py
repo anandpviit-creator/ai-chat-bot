@@ -8,6 +8,8 @@ from .search_clients import opensearch_client, vector_store
 from .schemas import SearchResult
 
 # Define the state for our graph
+from langchain_core.messages import BaseMessage
+
 class GraphState(TypedDict):
     query: str
     available_spaces: List[str]
@@ -16,6 +18,7 @@ class GraphState(TypedDict):
     vector_results: List[Dict]
     documents: List[Dict]
     generation: str
+    chat_history: List[BaseMessage]
 
 # --- Nodes ---
 
@@ -163,38 +166,56 @@ def fusion_node(state: GraphState) -> dict:
 
     return {"documents": final_docs}
 
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage
+
 def generate_node(state: GraphState) -> dict:
-    """Generates an answer using the LLM based on the retrieved documents."""
+    """
+    Generates an answer using the LLM, taking into account the retrieved documents and chat history.
+    Also updates the chat history with the latest turn.
+    """
     query = state["query"]
     documents = state["documents"]
+    chat_history = state["chat_history"]
 
     context = "\n\n".join([doc["content"] for doc in documents])
 
-    prompt_template = """
+    # The system prompt provides instructions
+    system_prompt = """
     You are a helpful assistant for a Confluence knowledge base.
-    Answer the user's question based on the following context.
+    Answer the user's question based on the following context and the conversation history.
     If the context does not contain the answer, state that you don't have enough information.
+    Do not make up answers.
 
     Context:
     {context}
-
-    Question:
-    {question}
-
-    Answer:
     """
 
-    prompt = PromptTemplate(
-        template=prompt_template,
-        input_variables=["context", "question"]
-    )
+    # The prompt template now includes placeholders for history and the user's input
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        MessagesPlaceholder(variable_name="chat_history"),
+        ("human", "{question}"),
+    ])
 
     llm = get_llm()
     chain = prompt | llm
 
-    generation = chain.invoke({"context": context, "question": query})
+    # Invoke the chain with all necessary inputs
+    generation = chain.invoke({
+        "context": context,
+        "question": query,
+        "chat_history": chat_history
+    })
 
-    return {"generation": generation, "documents": documents} # Pass documents through for final output
+    # Update the chat history with the new turn
+    updated_history = chat_history + [HumanMessage(content=query), AIMessage(content=generation)]
+
+    return {
+        "generation": generation,
+        "documents": documents, # Pass documents through for final output
+        "chat_history": updated_history
+    }
 
 
 # --- Graph Definition ---
