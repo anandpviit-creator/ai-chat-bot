@@ -1,4 +1,5 @@
 import os
+import json
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -9,7 +10,20 @@ class Settings:
     CONFLUENCE_URL = os.getenv("CONFLUENCE_URL")
     CONFLUENCE_USERNAME = os.getenv("CONFLUENCE_USERNAME")
     CONFLUENCE_API_TOKEN = os.getenv("CONFLUENCE_API_TOKEN")
-    CONFLUENCE_SPACE_KEYS = [key.strip() for key in os.getenv("CONFLUENCE_SPACE_KEYS", "").split(',')]
+
+    # Parse Confluence sources from JSON string
+    try:
+        CONFLUENCE_SOURCES = json.loads(os.getenv("CONFLUENCE_SOURCES", "[]"))
+    except json.JSONDecodeError:
+        print("Warning: Could not parse CONFLUENCE_SOURCES. Please check the JSON format in your .env file.")
+        CONFLUENCE_SOURCES = []
+
+    @property
+    def CONFLUENCE_SPACE_KEYS(self):
+        """Dynamically provides a list of unique space keys from the configured sources."""
+        if not hasattr(self, '_space_keys'):
+            self._space_keys = sorted(list(set(source['space'] for source in self.CONFLUENCE_SOURCES if 'space' in source)))
+        return self._space_keys
 
     # PostgreSQL
     POSTGRES_DB = os.getenv("POSTGRES_DB")

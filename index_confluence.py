@@ -1,7 +1,7 @@
 import time
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from src.config import settings
-from src.confluence_utils import get_confluence_client, get_all_pages_from_space, clean_html_content
+from src.confluence_utils import get_confluence_client, get_all_pages_from_space, get_page_descendants, clean_html_content
 from src.search_clients import opensearch_client, vector_store
 
 def create_opensearch_index():
@@ -45,26 +45,36 @@ def index_data():
     # 2. Ensure OpenSearch index exists
     create_opensearch_index()
 
-    # 3. Fetch pages from all configured Confluence spaces
+    # 3. Fetch pages from all configured Confluence sources
     all_pages = []
-    if not settings.CONFLUENCE_SPACE_KEYS or settings.CONFLUENCE_SPACE_KEYS == ['']:
-        print("No Confluence space keys configured. Please set CONFLUENCE_SPACE_KEYS in your .env file.")
+    if not settings.CONFLUENCE_SOURCES:
+        print("No Confluence sources configured. Please set CONFLUENCE_SOURCES in your .env file.")
         return
 
-    for space_key in settings.CONFLUENCE_SPACE_KEYS:
-        print(f"Fetching all pages from space: {space_key}...")
-        pages_in_space = get_all_pages_from_space(confluence_client, space_key)
-        if not pages_in_space:
-            print(f"No pages found in space: {space_key}")
+    for source in settings.CONFLUENCE_SOURCES:
+        space_key = source.get("space")
+        parent_page_id = source.get("parent_page_id")
+
+        if not space_key:
+            print(f"Skipping source due to missing 'space' key: {source}")
             continue
-        all_pages.extend(pages_in_space)
-        print(f"Found {len(pages_in_space)} pages in space {space_key}.")
+
+        if parent_page_id:
+            print(f"Fetching pages from folder '{parent_page_id}' in space '{space_key}'...")
+            pages = get_page_descendants(confluence_client, parent_page_id)
+            print(f"Found {len(pages)} pages in folder.")
+        else:
+            print(f"Fetching all pages from space: {space_key}...")
+            pages = get_all_pages_from_space(confluence_client, space_key)
+            print(f"Found {len(pages)} pages in space.")
+
+        all_pages.extend(pages)
 
     if not all_pages:
-        print("No pages found across any of the specified Confluence spaces.")
+        print("No pages found across any of the specified Confluence sources.")
         return
 
-    print(f"Found a total of {len(all_pages)} pages to index.")
+    print(f"Found a total of {len(all_pages)} pages to index from all sources.")
 
     # 4. Process and split documents
     text_splitter = RecursiveCharacterTextSplitter(
