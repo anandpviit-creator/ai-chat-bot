@@ -1,0 +1,45 @@
+@startuml
+title System Architecture
+
+!theme vibrant
+
+actor User
+
+package "Docker Environment" {
+  node "FastAPI Application" as App {
+    component "API Endpoint" as API
+    component "LangGraph Agent" as Agent
+  }
+
+  database "PostgreSQL" as Postgres {
+    component "PGVector"
+  }
+  database "OpenSearch" as OpenSearch
+  database "Neo4j" as Neo4j
+}
+
+node "Confluence" as Confluence
+node "Ollama (Mistral LLM)" as Ollama
+
+User .> API : HTTPS Request
+API ..> Agent : Invokes Agent
+
+Agent .> Ollama : LLM Calls (Routing, Generation, etc.)
+Agent .> OpenSearch : Keyword Search
+Agent .> PGVector : Semantic Search
+Agent .> Neo4j : Graph Search
+
+package "Offline Processes" {
+  component "index_confluence.py" as Indexer
+  component "run_evaluation.py" as Evaluator
+}
+
+Indexer ..> Confluence : Fetches data
+Indexer ..> Ollama : Graph Extraction
+Indexer ..> Postgres : Indexes vectors
+Indexer ..> OpenSearch : Indexes documents
+Indexer ..> Neo4j : Populates graph
+
+Evaluator ..> API : Queries for evaluation
+
+@enduml
